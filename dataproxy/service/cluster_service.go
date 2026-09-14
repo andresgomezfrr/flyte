@@ -142,18 +142,7 @@ func (svc *ClusterService) SelectCluster(
 	svc.mu.RLock()
 	defer svc.mu.RUnlock()
 
-	// Direct cluster lookup — caller already knows which cluster.
-	if cid := req.Msg.GetClusterId(); cid != nil {
-		return svc.selectByName(ctx, cid.GetName(), req)
-	}
-
-	// Pool-based routing.
-	if cpid := req.Msg.GetClusterPoolId(); cpid != nil {
-		return svc.selectFromPool(ctx, cpid.GetName(), req)
-	}
-
-	// For all other resource-based lookups (org, project, domain, task, action, app),
-	// use the default pool if configured; otherwise fall through to the catch-all.
+	// Use the default pool if configured; otherwise fall through to catch-all.
 	if svc.defaultPool != "" {
 		return svc.selectFromPool(ctx, svc.defaultPool, req)
 	}
@@ -164,7 +153,6 @@ func (svc *ClusterService) SelectCluster(
 		logger.Debugf(ctx, "SelectCluster catch-all selected cluster %q", target.name)
 		return connect.NewResponse(&cluster.SelectClusterResponse{
 			ClusterEndpoint: target.endpoint,
-			Cluster:         target.name,
 		}), nil
 	}
 
@@ -172,21 +160,34 @@ func (svc *ClusterService) SelectCluster(
 	return svc.passthrough(req)
 }
 
-func (svc *ClusterService) selectByName(
-	ctx context.Context,
-	name string,
-	req *connect.Request[cluster.SelectClusterRequest],
-) (*connect.Response[cluster.SelectClusterResponse], error) {
+// SelectClusterByName resolves a cluster directly by name. Useful for callers
+// that already know the target cluster (e.g. from a stored assignment).
+func (svc *ClusterService) SelectClusterByName(name string) (string, error) {
+	svc.mu.RLock()
+	defer svc.mu.RUnlock()
 	c, ok := svc.clustersByName[name]
 	if !ok {
-		return nil, connect.NewError(connect.CodeNotFound,
-			fmt.Errorf("cluster %q not found or not enabled", name))
+		return "", fmt.Errorf("cluster %q not found or not enabled", name)
 	}
-	logger.Debugf(ctx, "SelectCluster resolved direct cluster %q", name)
-	return connect.NewResponse(&cluster.SelectClusterResponse{
-		ClusterEndpoint: c.Endpoint,
-		Cluster:         c.Name,
-	}), nil
+	return c.Endpoint, nil
+}
+
+// SelectClusterFromPool selects a cluster from the named pool using weighted
+// random selection. Falls back to catch-all if the pool is not found.
+func (svc *ClusterService) SelectClusterFromPool(ctx context.Context, poolName string) (string, string, error) {
+	svc.mu.RLock()
+	defer svc.mu.RUnlock()
+	sel, ok := svc.poolSelectors[poolName]
+	if !ok {
+		if svc.allSelector != nil {
+			logger.Warnf(ctx, "Pool %q not found, falling back to catch-all selector", poolName)
+			target := svc.allSelector.Get().(clusterTarget)
+			return target.endpoint, target.name, nil
+		}
+		return "", "", fmt.Errorf("cluster pool %q not found and no fallback available", poolName)
+	}
+	target := sel.Get().(clusterTarget)
+	return target.endpoint, target.name, nil
 }
 
 func (svc *ClusterService) selectFromPool(
@@ -202,7 +203,6 @@ func (svc *ClusterService) selectFromPool(
 			target := svc.allSelector.Get().(clusterTarget)
 			return connect.NewResponse(&cluster.SelectClusterResponse{
 				ClusterEndpoint: target.endpoint,
-				Cluster:         target.name,
 			}), nil
 		}
 		return nil, connect.NewError(connect.CodeNotFound,
@@ -213,7 +213,6 @@ func (svc *ClusterService) selectFromPool(
 	logger.Debugf(ctx, "SelectCluster pool %q selected cluster %q", poolName, target.name)
 	return connect.NewResponse(&cluster.SelectClusterResponse{
 		ClusterEndpoint: target.endpoint,
-		Cluster:         target.name,
 	}), nil
 }
 
