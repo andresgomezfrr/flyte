@@ -39,6 +39,11 @@ type DataProxyConfig struct {
 	// RunService configures the Runs service client. The Runs component also
 	// hosts the Task, Trigger, and Project APIs used by dataproxy.
 	RunService serviceclient.ServiceConfig `json:"runService" pflag:",Runs service client configuration."`
+
+	// ClusterConfig configures multi-cluster routing for the ClusterService.
+	// When empty, the service falls back to returning the requesting host
+	// (single-cluster mode).
+	ClusterConfig ClusterConfig `json:"clusterConfig" pflag:"-,Multi-cluster routing configuration."`
 }
 
 // ServerConfig holds HTTP server configuration.
