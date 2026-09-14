@@ -26,6 +26,11 @@ var configSection = config.MustRegisterSection(configSectionKey, defaultConfig)
 type DataProxyConfig struct {
 	Upload   DataProxyUploadConfig   `json:"upload" pflag:",Defines data proxy upload configuration."`
 	Download DataProxyDownloadConfig `json:"download" pflag:",Defines data proxy download configuration."`
+
+	// ClusterConfig configures multi-cluster routing for the ClusterService.
+	// When empty, the service falls back to returning the requesting host
+	// (single-cluster mode).
+	ClusterConfig ClusterConfig `json:"clusterConfig" pflag:"-,Multi-cluster routing configuration."`
 }
 
 // GetConfig returns the parsed data proxy configuration

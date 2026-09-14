@@ -45,7 +45,10 @@ func Setup(ctx context.Context, sc *app.SetupContext) error {
 	sc.Mux.Handle(path, handler)
 	logger.Infof(ctx, "Mounted DataProxyService at %s", path)
 
-	clusterSvc := service.NewClusterService()
+	clusterSvc, err := service.NewClusterServiceFromConfig(ctx, cfg.ClusterConfig)
+	if err != nil {
+		return fmt.Errorf("initializing cluster service: %w", err)
+	}
 	clusterPath, clusterHandler := clusterconnect.NewClusterServiceHandler(clusterSvc)
 	sc.Mux.Handle(clusterPath, clusterHandler)
 	logger.Infof(ctx, "Mounted ClusterService at %s", clusterPath)
